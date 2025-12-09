@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -x
+
   # torch==2.0.1+cu117 \
 
 # pip install \

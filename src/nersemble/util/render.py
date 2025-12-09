@@ -4,20 +4,25 @@ from typing import List, Optional
 import mediapy
 import numpy as np
 import torch
+from dreifus.matrix import Pose
 from elias.util import ensure_directory_exists_for_file
 from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.models.base_model import Model
 from nerfstudio.utils.colormaps import ColormapOptions, apply_depth_colormap
+from nersemble.ml_util import deformation_to_image, depth_to_image
 from tqdm import tqdm
 
 
-def render_trajectory_video(model: Model,
-                            cameras: Cameras,
-                            output_path: str,
-                            rendered_resolution_scaling_factor: float = 1.0,
-                            render_channels: List[str] = None,
-                            seconds: Optional[float] = None,
-                            raw_deformation_path: Optional[str] = None):
+def render_trajectory_video(
+    model: Model,
+    cameras: Cameras,
+    output_path: str,
+    rendered_resolution_scaling_factor: float = 1.0,
+    render_channels: List[str] = None,
+    seconds: Optional[float] = None,
+    deformation_projection: Optional[Pose] = None,
+    write_pt: bool = False,
+):
     print(f"Storing rendered videos in: {output_path}")
 
     if render_channels is None:
@@ -56,17 +61,36 @@ def render_trajectory_video(model: Model,
                     colormap_options=ColormapOptions(colormap="turbo", invert=True)
                 ).cpu().numpy()
 
-            if render_channel == "deformation" and raw_deformation_path is not None:
-                # PRay for me that this won't be 100GB
-                path = osp.join(raw_deformation_path, f"{camera_idx}-deformation.pt")
-                torch.save(outputs[render_channel], path)
-                continue
+            if render_channel in ["rgb", "deformation"] and camera_idx == 0:
+                img = outputs[render_channel].cpu().numpy()
+                mediapy.write_image(
+                    path=output_path.format(r=f"{render_channel}-0", e="png"),
+                    image=img,
+                )
+
+            if write_pt:
+                torch.save(
+                    obj=outputs[render_channel],
+                    f=output_path.format(r=f"{render_channel}-{camera_idx}", e="pt"),
+                )
+
+            if render_channel == "depth":
+                depth_to_image(
+                    output_path.format(r=f"{render_channel}-{camera_idx}", e="tiff"),
+                    outputs[render_channel],
+                )
+
+            if render_channel == "deformation":
+                deformation_to_image(
+                    output_path.format(r=f"{render_channel}-{camera_idx}", e="tiff"),
+                    outputs[render_channel],
+                )
 
             if render_channel not in writers:
                 render_width = int(output_image.shape[1])
                 render_height = int(output_image.shape[0])
                 writer = mediapy.VideoWriter(
-                    path=output_path.format(r=render_channel),
+                    path=output_path.format(r=render_channel, e="mp4"),
                     shape=(render_height, render_width),
                     fps=fps,
                 )
